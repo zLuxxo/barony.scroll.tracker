@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Scroll Tracker - Final Fix</title>
+    <title>Barony Scroll Tracker - Final</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -41,7 +41,7 @@
                 <span id="syncDot" class="status-dot"></span>
                 <span id="roomDisp" style="color:#8a7a6a">Room: ...</span>
                 <button onclick="copyLink()">Copy Link</button>
-                <button onclick="resetName()" style="font-size: 0.7rem; opacity: 0.6;">Change Name</button>
+                <button onclick="localStorage.removeItem('barony_user'); location.reload();" style="font-size: 0.7rem; opacity: 0.6;">Change Name</button>
             </div>
             <div style="display:flex; gap: 5px;">
                 <input type="text" id="manualId" placeholder="Join ID" style="width: 60px; background:#000; border:1px solid var(--gold); color:#fff; font-family:'VT323'; padding: 2px 5px;">
@@ -52,9 +52,9 @@
     </div>
 
     <script>
-        // --- API CONFIG ---
+        // --- API CONFIG (Double-checked against your keys) ---
         const SUB_URL = "https://pvbeaaatyaunnlzybgsu.supabase.co"; 
-        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5lenliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
+        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5senliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
 
         const supabaseClient = supabase.createClient(SUB_URL, SUB_KEY);
         const NAMES = ["Zelgo Mer", "Juyed Awk Yacc", "NR 9", "Nobary Robyan", "Pratyavayah", "Daiyen Fooels", "Lep Gex Ven Zea", "Prirutsenie", "Elbib Yloh", "Verr Yed Horre", "Venzar Borgavve", "Tharr", "Yum Yum", "Kernod Wel", "Elam Ebow", "Duam Xnaht", "Andova Begarin", "Kirje", "Hackem Muche", "Velox Neb", "Foobie Bletch", "Temov", "Garven Deh", "Read Me"];
@@ -65,21 +65,14 @@
         if (!urlParams.get('room')) history.replaceState(null, null, `?room=${roomId}`);
         document.getElementById('roomDisp').innerText = `Room: ${roomId}`;
 
-        // --- NAME LOGIC ---
         let charName = localStorage.getItem('barony_user');
-        if (!charName || charName === "null") {
+        if (!charName) {
             charName = prompt("Enter your character name:") || "Adventurer";
             localStorage.setItem('barony_user', charName);
         }
 
-        function resetName() {
-            localStorage.removeItem('barony_user');
-            location.reload();
-        }
-
         const currentSelections = {};
 
-        // --- UI & SYNC ---
         function initGrid() {
             const grid = document.getElementById('grid');
             grid.innerHTML = ''; 
@@ -101,6 +94,7 @@
                     await supabaseClient.from('scrolls').upsert({
                         room_id: roomId, scroll_name: name, effect: sel.value
                     }, { onConflict: 'room_id,scroll_name' });
+                    applyUpdate(name, sel.value);
                 };
             });
         }
@@ -108,14 +102,19 @@
         function updateExclusions() {
             const used = Object.values(currentSelections).filter(v => v !== "???" && v !== "Letter" && v !== "Blank");
             let disc = 0;
+            
             NAMES.forEach(name => {
                 const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
                 if(!sel) return;
+                
                 if(sel.value !== "???") disc++;
+                
                 Array.from(sel.options).forEach(opt => {
-                    const isUsed = used.includes(opt.value) && sel.value !== opt.value && opt.value !== "???" && opt.value !== "Letter" && opt.value !== "Blank";
-                    opt.disabled = isUsed;
-                    opt.style.color = isUsed ? "#444" : "var(--highlight)";
+                    const val = opt.value;
+                    // Disable if used by someone else, but NOT if it's the current selection for this dropdown
+                    const isUsedElsewhere = used.includes(val) && sel.value !== val && val !== "???" && val !== "Letter" && val !== "Blank";
+                    opt.disabled = isUsedElsewhere;
+                    opt.style.color = isUsedElsewhere ? "#444" : "var(--highlight)";
                 });
             });
             document.getElementById('counter').innerText = `Discovered: ${disc} / 24`;
@@ -133,11 +132,19 @@
 
         async function loadData() {
             const { data } = await supabaseClient.from('scrolls').select('*').eq('room_id', roomId);
-            if (data) data.forEach(row => applyUpdate(row.scroll_name, row.effect));
+            if (data) {
+                data.forEach(row => {
+                    currentSelections[row.scroll_name] = row.effect;
+                });
+                // Apply all at once to fix exclusion logic on load
+                Object.keys(currentSelections).forEach(name => {
+                    applyUpdate(name, currentSelections[name]);
+                });
+            }
         }
 
-        // --- REALTIME ---
-        supabaseClient.channel('db-changes')
+        // --- REALTIME SYNC ---
+        supabaseClient.channel('custom-all-channel')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, payload => {
                 if (payload.new && payload.new.room_id === roomId) {
                     applyUpdate(payload.new.scroll_name, payload.new.effect);
