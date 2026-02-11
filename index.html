@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Scroll Tracker - Final</title>
+    <title>Barony Scroll Tracker - Pro Sync</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -52,9 +52,8 @@
     </div>
 
     <script>
-        // --- API CONFIG (Double-checked against your keys) ---
-        const SUB_URL = "https://pvbeaaatyaunnlzybgsu.supabase.co"; 
-        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5senliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
+        const SUB_URL = "https://pvbeaaatyuunnlzybgsu.supabase.co"; 
+        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5lenliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
 
         const supabaseClient = supabase.createClient(SUB_URL, SUB_KEY);
         const NAMES = ["Zelgo Mer", "Juyed Awk Yacc", "NR 9", "Nobary Robyan", "Pratyavayah", "Daiyen Fooels", "Lep Gex Ven Zea", "Prirutsenie", "Elbib Yloh", "Verr Yed Horre", "Venzar Borgavve", "Tharr", "Yum Yum", "Kernod Wel", "Elam Ebow", "Duam Xnaht", "Andova Begarin", "Kirje", "Hackem Muche", "Velox Neb", "Foobie Bletch", "Temov", "Garven Deh", "Read Me"];
@@ -82,19 +81,17 @@
                 const safeId = name.replace(/\s+/g,'');
                 div.innerHTML = `<span>${name}</span><select id="s-${safeId}"></select>`;
                 grid.appendChild(div);
-                
                 const sel = div.querySelector('select');
                 EFFECTS.forEach(e => {
                     const opt = document.createElement('option');
                     opt.value = opt.text = e;
                     sel.appendChild(opt);
                 });
-
                 sel.onchange = async () => {
-                    await supabaseClient.from('scrolls').upsert({
+                    const { error } = await supabaseClient.from('scrolls').upsert({
                         room_id: roomId, scroll_name: name, effect: sel.value
                     }, { onConflict: 'room_id,scroll_name' });
-                    applyUpdate(name, sel.value);
+                    if (!error) applyUpdate(name, sel.value);
                 };
             });
         }
@@ -102,16 +99,12 @@
         function updateExclusions() {
             const used = Object.values(currentSelections).filter(v => v !== "???" && v !== "Letter" && v !== "Blank");
             let disc = 0;
-            
             NAMES.forEach(name => {
                 const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
                 if(!sel) return;
-                
                 if(sel.value !== "???") disc++;
-                
                 Array.from(sel.options).forEach(opt => {
                     const val = opt.value;
-                    // Disable if used by someone else, but NOT if it's the current selection for this dropdown
                     const isUsedElsewhere = used.includes(val) && sel.value !== val && val !== "???" && val !== "Letter" && val !== "Blank";
                     opt.disabled = isUsedElsewhere;
                     opt.style.color = isUsedElsewhere ? "#444" : "var(--highlight)";
@@ -126,63 +119,71 @@
             if (sel) {
                 sel.value = effect;
                 sel.classList.toggle('identified', effect !== "???");
+                updateExclusions();
             }
-            updateExclusions();
         }
 
         async function loadData() {
             const { data } = await supabaseClient.from('scrolls').select('*').eq('room_id', roomId);
             if (data) {
-                data.forEach(row => {
-                    currentSelections[row.scroll_name] = row.effect;
-                });
-                // Apply all at once to fix exclusion logic on load
-                Object.keys(currentSelections).forEach(name => {
-                    applyUpdate(name, currentSelections[name]);
-                });
+                data.forEach(row => { applyUpdate(row.scroll_name, row.effect); });
             }
+            refreshPlayers(); // Initial player load
         }
 
-        // --- REALTIME SYNC ---
-        supabaseClient.channel('custom-all-channel')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, payload => {
+        // --- ENHANCED REALTIME CHANNEL ---
+        // We use one channel for everything to ensure the browser doesn't drop the connection
+        const channel = supabaseClient.channel('barony-realtime', {
+            config: { broadcast: { self: true } }
+        });
+
+        channel
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, (payload) => {
                 if (payload.new && payload.new.room_id === roomId) {
                     applyUpdate(payload.new.scroll_name, payload.new.effect);
                 }
                 if (payload.eventType === 'DELETE') location.reload();
             })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => {
+                refreshPlayers();
+            })
             .subscribe(status => {
                 if(status === 'SUBSCRIBED') document.getElementById('syncDot').classList.add('online');
             });
 
-        // --- PRESENCE ---
+        // Presence Update Loop
         setInterval(async () => {
-            await supabaseClient.from('players').upsert({room_id: roomId, name: charName, last_seen: new Date().toISOString()}, {onConflict: 'room_id,name'});
-        }, 5000);
-
-        supabaseClient.channel('p-sync').on('postgres_changes', {event: '*', schema: 'public', table: 'players'}, () => refreshPlayers()).subscribe();
+            await supabaseClient.from('players').upsert({
+                room_id: roomId, name: charName, last_seen: new Date().toISOString()
+            }, { onConflict: 'room_id,name' });
+        }, 3000); // Faster heartbeat for better sync
 
         async function refreshPlayers() {
             const { data } = await supabaseClient.from('players').select('*').eq('room_id', roomId);
             const list = document.getElementById('playerList');
             if(!data) return;
+            const now = new Date();
+            const activePlayers = data.filter(p => (now - new Date(p.last_seen)) < 10000);
+            
             list.innerHTML = "In Dungeon: ";
-            data.filter(p => (new Date() - new Date(p.last_seen)) < 15000).forEach(p => {
+            activePlayers.forEach(p => {
                 list.innerHTML += `<span class="player-tag">${p.name}</span> `;
             });
         }
 
         async function resetRun() {
-            if(confirm("Wipe all scrolls?")) {
+            if(confirm("Wipe all scrolls for this room?")) {
                 await supabaseClient.from('scrolls').delete().eq('room_id', roomId);
             }
         }
 
-        function copyLink() { navigator.clipboard.writeText(window.location.href); alert("Link copied!"); }
+        function copyLink() { 
+            navigator.clipboard.writeText(window.location.href); 
+            alert("Room link copied!"); 
+        }
 
         initGrid();
         loadData();
-        refreshPlayers();
     </script>
 </body>
 </html>
