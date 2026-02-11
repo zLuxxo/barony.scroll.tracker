@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Scroll Tracker - Final</title>
+    <title>Barony Scroll Tracker - Final Fix</title>
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -18,7 +18,7 @@
         .item { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border: 1px solid #33241a; }
         .item:nth-child(even) { background: #1e150f; }
         select { background: #000; color: var(--highlight); border: 2px solid var(--gold); font-family: 'VT323'; font-size: 1.2rem; width: 160px; cursor: pointer; }
-        select.identified { border-color: #4CAF50; color: #fff; }
+        select.identified { border-color: #4CAF50; color: #fff; box-shadow: 0 0 5px #4CAF50; }
         .controls { padding: 15px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; background: #1a120b; border-top: 2px solid var(--gold); }
         button { background: #3d2b1f; color: #fff; border: 2px solid var(--gold); cursor: pointer; font-family: 'VT323'; padding: 6px 12px; font-size: 1rem; }
         .player-tag { color: var(--highlight); margin-right: 12px; border-bottom: 1px solid; font-size: 1.2rem; }
@@ -41,7 +41,7 @@
                 <span id="syncDot" class="status-dot"></span>
                 <span id="roomDisp" style="color:#8a7a6a">Room: ...</span>
                 <button onclick="copyLink()">Copy Link</button>
-                <button onclick="changeName()" style="font-size: 0.8rem; opacity: 0.7;">Edit Name</button>
+                <button onclick="resetName()" style="font-size: 0.7rem; opacity: 0.6;">Change Name</button>
             </div>
             <div style="display:flex; gap: 5px;">
                 <input type="text" id="manualId" placeholder="Join ID" style="width: 60px; background:#000; border:1px solid var(--gold); color:#fff; font-family:'VT323'; padding: 2px 5px;">
@@ -52,6 +52,7 @@
     </div>
 
     <script>
+        // --- API CONFIG ---
         const SUB_URL = "https://pvbeaaatyaunnlzybgsu.supabase.co"; 
         const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5lenliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
 
@@ -64,17 +65,21 @@
         if (!urlParams.get('room')) history.replaceState(null, null, `?room=${roomId}`);
         document.getElementById('roomDisp').innerText = `Room: ${roomId}`;
 
+        // --- NAME LOGIC ---
         let charName = localStorage.getItem('barony_user');
-        if (!charName) changeName();
-
-        function changeName() {
-            charName = prompt("Enter Character Name:") || "Adventurer";
+        if (!charName || charName === "null") {
+            charName = prompt("Enter your character name:") || "Adventurer";
             localStorage.setItem('barony_user', charName);
+        }
+
+        function resetName() {
+            localStorage.removeItem('barony_user');
             location.reload();
         }
 
         const currentSelections = {};
 
+        // --- UI & SYNC ---
         function initGrid() {
             const grid = document.getElementById('grid');
             grid.innerHTML = ''; 
@@ -84,12 +89,14 @@
                 const safeId = name.replace(/\s+/g,'');
                 div.innerHTML = `<span>${name}</span><select id="s-${safeId}"></select>`;
                 grid.appendChild(div);
+                
                 const sel = div.querySelector('select');
                 EFFECTS.forEach(e => {
                     const opt = document.createElement('option');
                     opt.value = opt.text = e;
                     sel.appendChild(opt);
                 });
+
                 sel.onchange = async () => {
                     await supabaseClient.from('scrolls').upsert({
                         room_id: roomId, scroll_name: name, effect: sel.value
@@ -99,14 +106,14 @@
         }
 
         function updateExclusions() {
-            const used = Object.values(currentSelections).filter(v => v !== "???" && v !== "Letter");
+            const used = Object.values(currentSelections).filter(v => v !== "???" && v !== "Letter" && v !== "Blank");
             let disc = 0;
             NAMES.forEach(name => {
                 const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
                 if(!sel) return;
                 if(sel.value !== "???") disc++;
                 Array.from(sel.options).forEach(opt => {
-                    const isUsed = used.includes(opt.value) && sel.value !== opt.value && opt.value !== "???" && opt.value !== "Letter";
+                    const isUsed = used.includes(opt.value) && sel.value !== opt.value && opt.value !== "???" && opt.value !== "Letter" && opt.value !== "Blank";
                     opt.disabled = isUsed;
                     opt.style.color = isUsed ? "#444" : "var(--highlight)";
                 });
@@ -129,24 +136,24 @@
             if (data) data.forEach(row => applyUpdate(row.scroll_name, row.effect));
         }
 
-        // IMPROVED REALTIME: Listen for ALL changes in this room
-        supabaseClient.channel('any')
+        // --- REALTIME ---
+        supabaseClient.channel('db-changes')
             .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, payload => {
                 if (payload.new && payload.new.room_id === roomId) {
                     applyUpdate(payload.new.scroll_name, payload.new.effect);
-                } else if (payload.eventType === 'DELETE') {
-                    location.reload(); 
                 }
+                if (payload.eventType === 'DELETE') location.reload();
             })
             .subscribe(status => {
                 if(status === 'SUBSCRIBED') document.getElementById('syncDot').classList.add('online');
             });
 
+        // --- PRESENCE ---
         setInterval(async () => {
             await supabaseClient.from('players').upsert({room_id: roomId, name: charName, last_seen: new Date().toISOString()}, {onConflict: 'room_id,name'});
         }, 5000);
 
-        supabaseClient.channel('p').on('postgres_changes', {event: '*', schema: 'public', table: 'players'}, () => refreshPlayers()).subscribe();
+        supabaseClient.channel('p-sync').on('postgres_changes', {event: '*', schema: 'public', table: 'players'}, () => refreshPlayers()).subscribe();
 
         async function refreshPlayers() {
             const { data } = await supabaseClient.from('players').select('*').eq('room_id', roomId);
@@ -161,7 +168,6 @@
         async function resetRun() {
             if(confirm("Wipe all scrolls?")) {
                 await supabaseClient.from('scrolls').delete().eq('room_id', roomId);
-                location.reload();
             }
         }
 
