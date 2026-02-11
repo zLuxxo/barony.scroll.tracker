@@ -3,11 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Scroll Tracker - Final Alpha</title>
+    <title>Barony Scroll Tracker - Pro Sync</title>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-        :root { --bg: #0f0a07; --panel: #261a12; --gold: #8c6a31; --text: #e0d0b8; --highlight: #f2c05e; --danger: #8a1313; }
+        :root {
+            --bg: #0f0a07; --panel: #261a12; --gold: #8c6a31;
+            --text: #e0d0b8; --highlight: #f2c05e; --danger: #8a1313;
+        }
         body { background: var(--bg); color: var(--text); font-family: 'VT323', monospace; padding: 10px; display: flex; justify-content: center; margin: 0; }
         .container { width: 100%; max-width: 950px; border: 4px solid var(--gold); background: var(--panel); box-shadow: 0 0 20px #000; }
         header { padding: 15px; border-bottom: 4px solid var(--gold); background: #1a120b; }
@@ -19,7 +22,7 @@
         .controls { padding: 15px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; background: #1a120b; border-top: 2px solid var(--gold); }
         button { background: #3d2b1f; color: #fff; border: 2px solid var(--gold); cursor: pointer; font-family: 'VT323'; padding: 6px 12px; font-size: 1rem; }
         .player-tag { color: var(--highlight); margin-right: 12px; border-bottom: 1px solid; font-size: 1.2rem; }
-        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #555; cursor: pointer; }
+        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #555; transition: background 0.3s; }
         .online { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; }
     </style>
 </head>
@@ -35,7 +38,7 @@
         <div id="grid" class="scroll-grid"></div>
         <div class="controls">
             <div>
-                <span id="syncDot" class="status-dot" title="Click to reconnect" onclick="location.reload()"></span>
+                <span id="syncDot" class="status-dot"></span>
                 <span id="roomDisp" style="color:#8a7a6a">Room: ...</span>
                 <button onclick="copyLink()">Copy Link</button>
                 <button onclick="localStorage.removeItem('barony_user'); location.reload();" style="font-size: 0.7rem; opacity: 0.6;">Change Name</button>
@@ -49,9 +52,8 @@
     </div>
 
     <script>
-        // Use the EXACT URL from your API settings
         const SUB_URL = "https://pvbeaaatyaunnlzybgsu.supabase.co"; 
-        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5lenliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
+        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5senliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
 
         const client = supabase.createClient(SUB_URL, SUB_KEY);
         const NAMES = ["Zelgo Mer", "Juyed Awk Yacc", "NR 9", "Nobary Robyan", "Pratyavayah", "Daiyen Fooels", "Lep Gex Ven Zea", "Prirutsenie", "Elbib Yloh", "Verr Yed Horre", "Venzar Borgavve", "Tharr", "Yum Yum", "Kernod Wel", "Elam Ebow", "Duam Xnaht", "Andova Begarin", "Kirje", "Hackem Muche", "Velox Neb", "Foobie Bletch", "Temov", "Garven Deh", "Read Me"];
@@ -65,7 +67,7 @@
         let charName = localStorage.getItem('barony_user') || "Adventurer";
         let selections = {};
 
-        function init() {
+        function initGrid() {
             const grid = document.getElementById('grid');
             grid.innerHTML = ''; 
             NAMES.forEach(name => {
@@ -81,83 +83,96 @@
                     sel.appendChild(opt);
                 });
                 sel.onchange = async () => {
-                    const { error } = await client.from('scrolls').upsert({
+                    await client.from('scrolls').upsert({
                         room_id: roomId, scroll_name: name, effect: sel.value
                     }, { onConflict: 'room_id,scroll_name' });
-                    
-                    if (!error) {
-                        selections[name] = sel.value;
-                        updateEx(); 
-                    }
+                    applyUpdate(name, sel.value);
                 };
             });
         }
 
-        function updateEx() {
+        function updateExclusions() {
+            // Find all unique effects currently selected (excluding non-unique ones)
             const used = Object.values(selections).filter(v => v !== "???" && v !== "Letter" && v !== "Blank");
             let disc = 0;
+            
             NAMES.forEach(name => {
                 const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
                 if(!sel) return;
                 if(sel.value !== "???") disc++;
+                
                 Array.from(sel.options).forEach(opt => {
-                    const isDuplicate = used.includes(opt.value) && sel.value !== opt.value;
-                    opt.disabled = isDuplicate;
-                    opt.style.opacity = isDuplicate ? "0.3" : "1";
+                    // Disable if the effect is used by another scroll, but NOT if it's the one this scroll currently has
+                    const isUsedElsewhere = used.includes(opt.value) && sel.value !== opt.value;
+                    opt.disabled = isUsedElsewhere;
+                    opt.style.color = isUsedElsewhere ? "#444" : "var(--highlight)";
                 });
             });
             document.getElementById('counter').innerText = `Discovered: ${disc} / 24`;
         }
 
-        // --- REALTIME SYNC ---
-        const channel = client.channel(`room-${roomId}`, { config: { broadcast: { self: true } } });
-        
-        channel.on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls', filter: `room_id=eq.${roomId}` }, (p) => {
-            if (p.new) {
-                selections[p.new.scroll_name] = p.new.effect;
-                const sel = document.getElementById(`s-${p.new.scroll_name.replace(/\s+/g,'')}`);
-                if (sel) {
-                    sel.value = p.new.effect;
-                    sel.classList.toggle('identified', p.new.effect !== "???");
-                }
-                updateEx();
+        function applyUpdate(name, effect) {
+            selections[name] = effect;
+            const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
+            if (sel) {
+                sel.value = effect;
+                sel.classList.toggle('identified', effect !== "???");
             }
-        }).subscribe(async (status) => {
-            if (status === 'SUBSCRIBED') {
-                document.getElementById('syncDot').classList.add('online');
-                // Initial Data Load
-                const { data } = await client.from('scrolls').select('*').eq('room_id', roomId);
-                if (data) data.forEach(r => {
-                    selections[r.scroll_name] = r.effect;
-                    const s = document.getElementById(`s-${r.scroll_name.replace(/\s+/g,'')}`);
-                    if (s) { s.value = r.effect; s.classList.toggle('identified', r.effect !== "???"); }
-                });
-                updateEx();
-            }
-        });
+            updateExclusions();
+        }
 
-        // Player Presence logic
-        setInterval(async () => {
-            await client.from('players').upsert({ room_id: roomId, name: charName, last_seen: new Date().toISOString() }, { onConflict: 'room_id,name' });
-            const { data } = await client.from('players').select('*').eq('room_id', roomId);
-            if(data) {
-                const list = document.getElementById('playerList');
-                list.innerHTML = "In Dungeon: ";
-                data.filter(p => (new Date() - new Date(p.last_seen)) < 15000).forEach(p => {
-                    list.innerHTML += `<span class="player-tag">${p.name}</span> `;
+        // --- REALTIME SYNC ---
+        function startSync() {
+            client.channel(`room-${roomId}`)
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls', filter: `room_id=eq.${roomId}` }, (payload) => {
+                    if (payload.new) applyUpdate(payload.new.scroll_name, payload.new.effect);
+                })
+                .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => refreshPlayers())
+                .subscribe((status) => {
+                    const dot = document.getElementById('syncDot');
+                    if (status === 'SUBSCRIBED') {
+                        dot.classList.add('online');
+                        loadInitialData();
+                    } else {
+                        dot.classList.remove('online');
+                    }
                 });
-            }
+        }
+
+        async function loadInitialData() {
+            const { data } = await client.from('scrolls').select('*').eq('room_id', roomId);
+            if (data) data.forEach(row => applyUpdate(row.scroll_name, row.effect));
+        }
+
+        async function refreshPlayers() {
+            const { data } = await client.from('players').select('*').eq('room_id', roomId);
+            const list = document.getElementById('playerList');
+            if(!data) return;
+            list.innerHTML = "In Dungeon: ";
+            data.filter(p => (new Date() - new Date(p.last_seen)) < 15000).forEach(p => {
+                list.innerHTML += `<span class="player-tag">${p.name}</span> `;
+            });
+        }
+
+        // Heartbeat for presence
+        setInterval(async () => {
+            await client.from('players').upsert({
+                room_id: roomId, name: charName, last_seen: new Date().toISOString()
+            }, { onConflict: 'room_id,name' });
+            // If the dot is grey, it means the websocket dropped. This refreshes player UI.
+            refreshPlayers();
         }, 5000);
 
-        function copyLink() { navigator.clipboard.writeText(window.location.href); alert("Room link copied!"); }
+        function copyLink() { navigator.clipboard.writeText(window.location.href); alert("Copied!"); }
         async function resetRun() { 
-            if(confirm("Wipe all data for this room?")) {
+            if(confirm("Wipe all scrolls?")) {
                 await client.from('scrolls').delete().eq('room_id', roomId);
                 location.reload();
             }
         }
 
-        init();
+        initGrid();
+        startSync();
     </script>
 </body>
 </html>
