@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Barony Live Tracker + Players</title>
+    <script src="https://cdn.jsdelivr.net/npm/gun/gun.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
+        :root {
+            --bg-color: #120d08;
+            --panel-bg: #2e2016;
+            --border-gold: #8c6a31;
+            --text-main: #e0d0b8;
+            --row-even: #261a12;
+            --row-odd: #33241a;
+            --highlight: #f2c05e;
+            --danger: #9e1b1b;
+            --success: #4CAF50;
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-family: 'VT323', monospace;
+            margin: 0;
+            padding: 10px;
+            display: flex;
+            justify-content: center;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 950px;
+            border: 4px solid var(--border-gold);
+            background: var(--panel-bg);
+            box-shadow: 0 0 30px rgba(0,0,0,0.7);
+        }
+
+        header {
+            background: #1e150f;
+            padding: 15px 20px;
+            border-bottom: 4px solid var(--border-gold);
+        }
+
+        .header-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .player-list { font-size: 1.1rem; color: #aaa; background: rgba(0,0,0,0.3); padding: 5px 10px; border-radius: 4px; }
+        .player-tag { color: var(--highlight); margin-right: 10px; border-bottom: 1px solid var(--highlight); }
+
+        .stats { color: var(--success); font-size: 1.4rem; }
+        h1 { margin: 0; font-size: 2.2rem; color: var(--highlight); text-transform: uppercase; }
+
+        .scroll-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            background: #1a120b;
+        }
+
+        .scroll-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            border: 1px solid rgba(140, 106, 49, 0.1);
+        }
+
+        .scroll-item:nth-child(4n+1), .scroll-item:nth-child(4n+2) { background: var(--row-odd); }
+        .scroll-item:nth-child(4n+3), .scroll-item:nth-child(4n+4) { background: var(--row-even); }
+
+        select {
+            background: #000;
+            color: var(--highlight);
+            border: 2px solid var(--border-gold);
+            font-family: 'VT323', monospace;
+            font-size: 1.1rem;
+            padding: 4px;
+            width: 160px;
+            cursor: pointer;
+        }
+
+        select.identified { border-color: var(--success); color: #fff; }
+
+        .controls {
+            padding: 15px;
+            background: #1e150f;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-top: 4px solid var(--border-gold);
+        }
+
+        .room-id { color: #8a7a6a; font-size: 0.9rem; }
+
+        button {
+            background: var(--danger);
+            color: #fff;
+            border: 2px solid #ff4d4d;
+            font-family: 'VT323', monospace;
+            font-size: 1.2rem;
+            padding: 8px 20px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <header>
+            <div class="header-top">
+                <h1>📜 Barony Scrolls</h1>
+                <div class="stats" id="counter">Discovered: 0 / 24</div>
+            </div>
+            <div class="player-list" id="playerList">In Dungeon: Waiting for players...</div>
+        </header>
+
+        <div id="scrollGrid" class="scroll-grid"></div>
+
+        <div class="controls">
+            <div id="roomDisplay" class="room-id">Room: ...</div>
+            <button onclick="resetRun()">RESET RUN</button>
+        </div>
+    </div>
+
+    <script>
+        const SCROLL_NAMES = ["Zelgo Mer", "Juyed Awk Yacc", "NR 9", "Nobary Robyan", "Pratyavayah", "Daiyen Fooels", "Lep Gex Ven Zea", "Prirutsenie", "Elbib Yloh", "Verr Yed Horre", "Venzar Borgavve", "Tharr", "Yum Yum", "Kernod Wel", "Elam Ebow", "Duam Xnaht", "Andova Begarin", "Kirje", "Hackem Muche", "Velox Neb", "Foobie Bletch", "Temov", "Garven Deh", "Read Me"];
+        const ALL_EFFECTS = ["???", "Blank", "Fire", "Remove Curse", "Light", "Identify", "Repair", "Destroy Armor", "Magic Mapping", "Charging", "Conjure Arrow", "Food", "Teleportation", "Summon", "Enchant Weapon", "Enchant Armor", "Letter"];
+
+        let currentSelections = {};
+        let myName = localStorage.getItem('barony_name');
+        
+        // Ask for name if not set
+        if (!myName) {
+            myName = prompt("Enter your Character Name for the run:") || "Unknown Adventurer";
+            localStorage.setItem('barony_name', myName);
+        }
+
+        const urlParams = new URLSearchParams(window.location.search);
+        let roomId = urlParams.get('room') || Math.random().toString(36).substring(2, 8);
+        if (!urlParams.get('room')) window.history.pushState({}, '', `?room=${roomId}`);
+        document.getElementById('roomDisplay').innerText = `Share link to sync - Room: ${roomId}`;
+
+        const gun = Gun(['https://gun-manhattan.herokuapp.com/gun']).get('barony_v5').get(roomId);
+
+        // Presence Logic: Tell everyone I am here every 5 seconds
+        setInterval(() => {
+            gun.get('players').get(myName).put(Date.now());
+        }, 5000);
+
+        // Listen for all players
+        gun.get('players').map().on((time, name) => {
+            const playersDiv = document.getElementById('playerList');
+            // Only show players seen in the last 15 seconds
+            if (Date.now() - time < 15000) {
+                if (!document.getElementById(`p-${name}`)) {
+                    const span = document.createElement('span');
+                    span.id = `p-${name}`;
+                    span.className = 'player-tag';
+                    span.innerText = name;
+                    playersDiv.appendChild(span);
+                    if(playersDiv.innerText.includes("Waiting")) playersDiv.innerText = "In Dungeon: ";
+                }
+            } else {
+                const el = document.getElementById(`p-${name}`);
+                if (el) el.remove();
+            }
+        });
+
+        const grid = document.getElementById('scrollGrid');
+        SCROLL_NAMES.forEach(name => {
+            const item = document.createElement('div');
+            item.className = 'scroll-item';
+            item.innerHTML = `<span class="scroll-name">${name}</span><select id="sel-${name.replace(/\s+/g, '')}"></select>`;
+            grid.appendChild(item);
+            
+            const sel = item.querySelector('select');
+            sel.onchange = (e) => gun.get('scrolls').get(name).put(e.target.value);
+            
+            gun.get('scrolls').get(name).on((val) => {
+                currentSelections[name] = val || "???";
+                renderAllDropdowns();
+            });
+        });
+
+        function renderAllDropdowns() {
+            const usedEffects = Object.values(currentSelections).filter(v => v !== "???" && v !== "Letter");
+            let discoveredCount = 0;
+
+            SCROLL_NAMES.forEach(name => {
+                const sel = document.getElementById(`sel-${name.replace(/\s+/g, '')}`);
+                const currentVal = currentSelections[name] || "???";
+                if (currentVal !== "???") discoveredCount++;
+
+                const optionsHtml = ALL_EFFECTS.map(eff => {
+                    const isDisabled = (usedEffects.includes(eff) && eff !== currentVal && eff !== "Letter" && eff !== "???");
+                    if (isDisabled) return '';
+                    return `<option value="${eff}" ${eff === currentVal ? 'selected' : ''}>${eff}</option>`;
+                }).join('');
+
+                if (sel.innerHTML !== optionsHtml) sel.innerHTML = optionsHtml;
+                sel.className = currentVal !== "???" ? 'identified' : '';
+            });
+            document.getElementById('counter').innerText = `Discovered: ${discoveredCount} / 24`;
+        }
+
+        function resetRun() {
+            if(confirm("Wipe all scrolls for everyone in the room?")) {
+                SCROLL_NAMES.forEach(n => gun.get('scrolls').get(n).put("???"));
+            }
+        }
+    </script>
+</body>
+</html>
