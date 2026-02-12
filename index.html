@@ -3,45 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Tracker - Fix</title>
+    <title>Barony Tracker - Emergency Fix</title>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
         :root { --bg: #0f0a07; --panel: #261a12; --gold: #8c6a31; --text: #e0d0b8; --highlight: #f2c05e; --danger: #8a1313; }
-        body { background: var(--bg); color: var(--text); font-family: 'VT323', monospace; padding: 20px; display: flex; justify-content: center; margin: 0; }
-        .container { width: 100%; max-width: 900px; border: 4px solid var(--gold); background: var(--panel); position: relative; }
-        .scroll-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); background: #000; border-top: 2px solid var(--gold); }
-        .item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border: 1px solid #33241a; }
-        select { background: #000; color: var(--highlight); border: 2px solid var(--gold); font-family: 'VT323'; font-size: 1.2rem; cursor: pointer; }
-        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; background: #555; margin-right: 8px; }
+        body { background: var(--bg); color: var(--text); font-family: 'VT323', monospace; padding: 15px; display: flex; justify-content: center; margin: 0; }
+        .container { width: 100%; max-width: 900px; border: 4px solid var(--gold); background: var(--panel); box-shadow: 0 0 20px #000; }
+        header { padding: 15px; border-bottom: 2px solid var(--gold); }
+        .scroll-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); background: #000; }
+        .item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #33241a; }
+        select { background: #000; color: var(--highlight); border: 2px solid var(--gold); font-family: 'VT323'; font-size: 1.1rem; width: 150px; }
+        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; background: #555; }
         .online { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; }
-        #error-banner { background: var(--danger); color: white; padding: 10px; display: none; text-align: center; font-weight: bold; }
-        #nameOverlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; display: none; flex-direction: column; justify-content: center; align-items: center; }
+        #error-msg { background: var(--danger); color: white; padding: 10px; display: none; text-align: center; }
+        #nameOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 99; display: none; flex-direction: column; justify-content: center; align-items: center; }
         #nameOverlay.show { display: flex; }
     </style>
 </head>
 <body>
+    <div id="nameOverlay">
+        <h2 style="color:var(--gold)">ENTER CHARACTER NAME</h2>
+        <input type="text" id="nIn" style="background:#000; border:2px solid var(--gold); color:#fff; font-family:'VT323'; font-size: 1.5rem; text-align: center;">
+        <button onclick="saveName()" style="margin-top:10px; padding: 5px 20px; font-family:'VT323'; cursor:pointer;">ENTER</button>
+    </div>
+
     <div class="container">
-        <div id="error-banner">CONNECTION ERROR: Check Supabase API Keys / SQL Permissions</div>
-        <div id="nameOverlay">
-            <h2 style="color:var(--gold)">CHARACTER NAME</h2>
-            <input type="text" id="nIn" style="background:#000; border:2px solid var(--gold); color:#fff; font-family:'VT323'; font-size: 1.5rem; padding: 5px;">
-            <button onclick="saveName()" style="margin-top:10px; padding: 5px 20px; font-family:'VT323'; cursor:pointer;">START</button>
-        </div>
-        <header style="padding: 15px;">
+        <div id="error-msg"></div>
+        <header>
             <h1 style="margin:0">📜 BARONY SCROLLS</h1>
-            <div id="playerList" style="color: #8a7a6a; margin-top: 5px;"></div>
+            <div id="playerList" style="color:#8a7a6a">In Dungeon: ...</div>
         </header>
         <div id="grid" class="scroll-grid"></div>
-        <div style="padding: 15px; background: #1a120b; display: flex; justify-content: space-between; align-items: center;">
-            <div><span id="syncDot" class="status-dot"></span> <span id="roomInfo"></span></div>
+        <footer style="padding:15px; background:#1a120b; display:flex; justify-content:space-between; align-items:center;">
+            <div><span id="syncDot" class="status-dot"></span> <span id="roomLabel"></span></div>
             <button onclick="localStorage.removeItem('barony_user'); location.reload();">Reset Identity</button>
-        </div>
+        </footer>
     </div>
 
     <script>
         const SUB_URL = "https://pvbeaaatyaunnlzybgsu.supabase.co"; 
-        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5senliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
+        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5lenliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
 
         const client = supabase.createClient(SUB_URL, SUB_KEY);
         const NAMES = ["Zelgo Mer", "Juyed Awk Yacc", "NR 9", "Nobary Robyan", "Pratyavayah", "Daiyen Fooels", "Lep Gex Ven Zea", "Prirutsenie", "Elbib Yloh", "Verr Yed Horre", "Venzar Borgavve", "Tharr", "Yum Yum", "Kernod Wel", "Elam Ebow", "Duam Xnaht", "Andova Begarin", "Kirje", "Hackem Muche", "Velox Neb", "Foobie Bletch", "Temov", "Garven Deh", "Read Me"];
@@ -50,14 +52,20 @@
         const urlParams = new URLSearchParams(window.location.search);
         let roomId = urlParams.get('room') || Math.random().toString(36).substring(2, 8);
         if (!urlParams.get('room')) history.replaceState(null, null, `?room=${roomId}`);
-        document.getElementById('roomInfo').innerText = "Room: " + roomId;
+        document.getElementById('roomLabel').innerText = "Room: " + roomId;
 
         let charName = localStorage.getItem('barony_user');
         if(!charName) document.getElementById('nameOverlay').classList.add('show');
 
         function saveName() {
-            const n = document.getElementById('nIn').value.trim();
-            if(n) { localStorage.setItem('barony_user', n); location.reload(); }
+            const val = document.getElementById('nIn').value.trim();
+            if(val) { localStorage.setItem('barony_user', val); location.reload(); }
+        }
+
+        function showErr(msg) {
+            const el = document.getElementById('error-msg');
+            el.style.display = 'block';
+            el.innerText = "Connection Error: " + msg;
         }
 
         function init() {
@@ -80,36 +88,24 @@
             });
         }
 
-        function showErr(m) {
-            const b = document.getElementById('error-banner');
-            b.style.display = 'block';
-            b.innerText = "DB Error: " + m;
-        }
-
-        function updateUI(name, effect) {
-            const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
-            if(sel) {
-                sel.value = effect;
-                sel.style.borderColor = (effect !== "???") ? "#4CAF50" : "#8c6a31";
-            }
-        }
-
-        async function load() {
+        async function sync() {
             const { data, error } = await client.from('scrolls').select('*').eq('room_id', roomId);
             if(error) { showErr(error.message); return; }
-            data.forEach(r => updateUI(r.scroll_name, r.effect));
+            data.forEach(r => {
+                const sel = document.getElementById(`s-${r.scroll_name.replace(/\s+/g,'')}`);
+                if(sel) {
+                    sel.value = r.effect;
+                    sel.style.borderColor = (r.effect !== "???") ? "#4CAF50" : "#8c6a31";
+                }
+            });
         }
 
-        // Realtime
-        client.channel('room-sync')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, p => {
-                if(p.new && p.new.room_id === roomId) updateUI(p.new.scroll_name, p.new.effect);
-            })
-            .subscribe(status => {
-                if(status === 'SUBSCRIBED') document.getElementById('syncDot').classList.add('online');
-            });
+        client.channel('global').on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, p => {
+            if(p.new && p.new.room_id === roomId) sync();
+        }).subscribe(s => {
+            if(s === 'SUBSCRIBED') document.getElementById('syncDot').classList.add('online');
+        });
 
-        // Heartbeat
         setInterval(async () => {
             if(charName) {
                 await client.from('players').upsert({ room_id: roomId, name: charName, last_seen: new Date().toISOString() }, { onConflict: 'room_id,name' });
@@ -122,7 +118,7 @@
         }, 5000);
 
         init();
-        load();
+        sync();
     </script>
 </body>
 </html>
