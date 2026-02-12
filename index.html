@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Tracker - Exclusion Mode</title>
+    <title>Barony Tracker - Gold Edition</title>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -21,6 +21,8 @@
         #nameOverlay.show { display: flex; }
         input { background: #000; border: 2px solid var(--gold); color: #fff; font-family: 'VT323'; font-size: 1.5rem; text-align: center; padding: 8px; }
         button { background: #3d2b1f; color: #fff; border: 2px solid var(--gold); cursor: pointer; font-family: 'VT323'; padding: 5px 15px; }
+        button.reset { border-color: var(--danger); color: #ff6666; }
+        button.reset:hover { background: var(--danger); color: white; }
     </style>
 </head>
 <body>
@@ -44,8 +46,8 @@
         <footer style="padding:15px; background:#1a120b; border-top: 2px solid var(--gold); display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 10px;">
             <div><span id="syncDot" class="status-dot"></span> <span id="roomLabel" style="color:#8a7a6a"></span></div>
             <div style="display:flex; gap: 10px;">
-                <button onclick="localStorage.removeItem('barony_user'); location.reload();">Change Name</button>
-                <button onclick="resetRoom()" style="border-color: var(--danger); color: #ff6666;">Reset Run</button>
+                <button onclick="localStorage.removeItem('barony_user'); location.reload();">New Name</button>
+                <button class="reset" onclick="resetRoom()">Reset All</button>
             </div>
         </footer>
     </div>
@@ -100,8 +102,9 @@
                 });
             }
 
-            // Get list of effects already taken (excluding ???, Blank, and Letter as they can repeat)
-            const taken = Object.values(currentChoices).filter(v => v !== "???" && v !== "Blank" && v !== "Letter");
+            // Blacklist of unique effects already taken
+            // Letter is excluded from the blacklist so it can be picked multiple times
+            const taken = Object.values(currentChoices).filter(v => v !== "???" && v !== "Letter");
 
             NAMES.forEach(name => {
                 const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
@@ -109,11 +112,10 @@
 
                 const currentVal = currentChoices[name] || "???";
                 
-                // Rebuild the options list
                 sel.innerHTML = '';
                 ALL_EFFECTS.forEach(eff => {
-                    // Show if: it's ???, it's Blank/Letter, it's the current selection, OR it's not taken yet
-                    if (eff === "???" || eff === "Blank" || eff === "Letter" || eff === currentVal || !taken.includes(eff)) {
+                    // Show if: it's ???, it's Letter, it's the current selection, OR it's not in the 'taken' list
+                    if (eff === "???" || eff === "Letter" || eff === currentVal || !taken.includes(eff)) {
                         const opt = document.createElement('option');
                         opt.value = opt.text = eff;
                         sel.appendChild(opt);
@@ -136,7 +138,7 @@
         }
 
         async function resetRoom() {
-            if(confirm("Wipe all identified scrolls for this room?")) {
+            if(confirm("Permanently wipe all identifications for this room?")) {
                 await client.from('scrolls').delete().eq('room_id', roomId);
                 syncData();
             }
