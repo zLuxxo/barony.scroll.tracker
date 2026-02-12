@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Tracker - Gold Edition</title>
+    <title>Barony Tracker - Fixed Upsert</title>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -13,16 +13,14 @@
         header { padding: 15px; border-bottom: 2px solid var(--gold); background: #1a120b; }
         .scroll-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); background: #000; }
         .item { display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #33241a; }
-        select { background: #000; color: var(--highlight); border: 2px solid var(--gold); font-family: 'VT323'; font-size: 1.1rem; width: 150px; cursor: pointer; }
-        .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; background: #555; margin-right: 5px; }
-        .online { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; animation: pulse 2s infinite; }
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
+        select { background: #000; color: var(--highlight); border: 2px solid var(--gold); font-family: 'VT323'; font-size: 1.1rem; width: 150px; }
+        .status-dot { height: 10px; width: 10px; border-radius: 50%; display: inline-block; background: #555; }
+        .online { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; }
+        #error-log { background: #400; color: #f66; padding: 5px; display: none; text-align: center; font-size: 0.8rem; }
         #nameOverlay { position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; display: none; flex-direction: column; justify-content: center; align-items: center; }
         #nameOverlay.show { display: flex; }
         input { background: #000; border: 2px solid var(--gold); color: #fff; font-family: 'VT323'; font-size: 1.5rem; text-align: center; padding: 8px; }
         button { background: #3d2b1f; color: #fff; border: 2px solid var(--gold); cursor: pointer; font-family: 'VT323'; padding: 5px 15px; }
-        button.reset { border-color: var(--danger); color: #ff6666; }
-        button.reset:hover { background: var(--danger); color: white; }
     </style>
 </head>
 <body>
@@ -33,6 +31,7 @@
     </div>
 
     <div class="container">
+        <div id="error-log"></div>
         <header>
             <div style="display:flex; justify-content:space-between; align-items: center;">
                 <h1 style="margin:0">📜 BARONY SCROLLS</h1>
@@ -43,11 +42,11 @@
         
         <div id="grid" class="scroll-grid"></div>
 
-        <footer style="padding:15px; background:#1a120b; border-top: 2px solid var(--gold); display:flex; justify-content:space-between; align-items:center; flex-wrap: wrap; gap: 10px;">
+        <footer style="padding:15px; background:#1a120b; border-top: 2px solid var(--gold); display:flex; justify-content:space-between; align-items:center;">
             <div><span id="syncDot" class="status-dot"></span> <span id="roomLabel" style="color:#8a7a6a"></span></div>
             <div style="display:flex; gap: 10px;">
                 <button onclick="localStorage.removeItem('barony_user'); location.reload();">New Name</button>
-                <button class="reset" onclick="resetRoom()">Reset All</button>
+                <button onclick="resetRoom()" style="border-color: var(--danger); color: #ff6666;">Reset All</button>
             </div>
         </footer>
     </div>
@@ -80,14 +79,22 @@
                 div.className = 'item';
                 div.innerHTML = `<span>${name}</span><select id="s-${name.replace(/\s+/g,'')}"></select>`;
                 grid.appendChild(div);
-                const sel = div.querySelector('select');
-                sel.onchange = async () => {
-                    await client.from('scrolls').upsert(
-                        { room_id: roomId, scroll_name: name, effect: sel.value },
-                        { onConflict: 'room_id,scroll_name' }
-                    );
-                };
             });
+        }
+
+        async function updateScroll(name, effect) {
+            // Explicit upsert with column mapping
+            const { error } = await client.from('scrolls').upsert(
+                { room_id: roomId, scroll_name: name, effect: effect },
+                { onConflict: 'room_id,scroll_name' }
+            );
+            if(error) {
+                const log = document.getElementById('error-log');
+                log.style.display = 'block';
+                log.innerText = "Sync Error: " + error.message;
+            } else {
+                document.getElementById('error-log').style.display = 'none';
+            }
         }
 
         async function syncData() {
@@ -102,8 +109,6 @@
                 });
             }
 
-            // Blacklist of unique effects already taken
-            // Letter is excluded from the blacklist so it can be picked multiple times
             const taken = Object.values(currentChoices).filter(v => v !== "???" && v !== "Letter");
 
             NAMES.forEach(name => {
@@ -111,10 +116,9 @@
                 if (!sel) return;
 
                 const currentVal = currentChoices[name] || "???";
-                
                 sel.innerHTML = '';
+                
                 ALL_EFFECTS.forEach(eff => {
-                    // Show if: it's ???, it's Letter, it's the current selection, OR it's not in the 'taken' list
                     if (eff === "???" || eff === "Letter" || eff === currentVal || !taken.includes(eff)) {
                         const opt = document.createElement('option');
                         opt.value = opt.text = eff;
@@ -124,6 +128,8 @@
 
                 sel.value = currentVal;
                 sel.style.borderColor = (currentVal !== "???") ? "#4CAF50" : "var(--gold)";
+                // Update change listener
+                sel.onchange = () => updateScroll(name, sel.value);
             });
 
             document.getElementById('counter').innerText = `Discovered: ${discCount} / 24`;
@@ -138,25 +144,18 @@
         }
 
         async function resetRoom() {
-            if(confirm("Permanently wipe all identifications for this room?")) {
+            if(confirm("Wipe all data for this room?")) {
                 await client.from('scrolls').delete().eq('room_id', roomId);
                 syncData();
             }
         }
 
-        client.channel('room-sync')
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, () => syncData())
-            .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => updatePlayers())
-            .subscribe(status => {
-                if(status === 'SUBSCRIBED') document.getElementById('syncDot').classList.add('online');
-            });
+        client.channel('any').on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, () => syncData())
+            .subscribe(s => { if(s === 'SUBSCRIBED') document.getElementById('syncDot').classList.add('online'); });
 
         setInterval(async () => {
             if(charName) {
-                await client.from('players').upsert(
-                    { room_id: roomId, name: charName, last_seen: new Date().toISOString() },
-                    { onConflict: 'room_id,name' }
-                );
+                await client.from('players').upsert({ room_id: roomId, name: charName, last_seen: new Date().toISOString() }, { onConflict: 'room_id,name' });
                 updatePlayers();
             }
         }, 5000);
