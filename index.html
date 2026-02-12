@@ -3,16 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Scroll Tracker - Pro Sync</title>
+    <title>Barony Scroll Tracker - Final Sync</title>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
-        :root {
-            --bg: #0f0a07; --panel: #261a12; --gold: #8c6a31;
-            --text: #e0d0b8; --highlight: #f2c05e; --danger: #8a1313;
-        }
+        :root { --bg: #0f0a07; --panel: #261a12; --gold: #8c6a31; --text: #e0d0b8; --highlight: #f2c05e; --danger: #8a1313; }
         body { background: var(--bg); color: var(--text); font-family: 'VT323', monospace; padding: 10px; display: flex; justify-content: center; margin: 0; }
-        .container { width: 100%; max-width: 950px; border: 4px solid var(--gold); background: var(--panel); box-shadow: 0 0 20px #000; }
+        .container { width: 100%; max-width: 950px; border: 4px solid var(--gold); background: var(--panel); box-shadow: 0 0 20px #000; position: relative; }
         header { padding: 15px; border-bottom: 4px solid var(--gold); background: #1a120b; }
         .scroll-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); background: #000; }
         .item { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border: 1px solid #33241a; }
@@ -22,12 +19,22 @@
         .controls { padding: 15px; display: flex; flex-wrap: wrap; gap: 10px; justify-content: space-between; align-items: center; background: #1a120b; border-top: 2px solid var(--gold); }
         button { background: #3d2b1f; color: #fff; border: 2px solid var(--gold); cursor: pointer; font-family: 'VT323'; padding: 6px 12px; font-size: 1rem; }
         .player-tag { color: var(--highlight); margin-right: 12px; border-bottom: 1px solid; font-size: 1.2rem; }
-        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #555; transition: background 0.3s; }
+        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; margin-right: 5px; background: #555; }
         .online { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; }
+        
+        /* Name Modal */
+        #nameOverlay { position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.9); z-index: 100; display: flex; flex-direction: column; justify-content: center; align-items: center; visibility: hidden; }
+        #nameOverlay.show { visibility: visible; }
     </style>
 </head>
 <body>
     <div class="container">
+        <div id="nameOverlay">
+            <h2 style="color:var(--gold)">WHO ART THOU?</h2>
+            <input type="text" id="nIn" placeholder="Character Name" style="background:#000; border:2px solid var(--gold); color:#fff; font-family:'VT323'; font-size: 1.5rem; padding: 10px; margin-bottom: 10px;">
+            <button onclick="saveName()" style="font-size: 1.5rem;">ENTER DUNGEON</button>
+        </div>
+
         <header>
             <div style="display:flex; justify-content:space-between; align-items: center;">
                 <h1 style="margin:0">📜 BARONY SCROLLS</h1>
@@ -40,20 +47,18 @@
             <div>
                 <span id="syncDot" class="status-dot"></span>
                 <span id="roomDisp" style="color:#8a7a6a">Room: ...</span>
-                <button onclick="copyLink()">Copy Link</button>
-                <button onclick="localStorage.removeItem('barony_user'); location.reload();" style="font-size: 0.7rem; opacity: 0.6;">Change Name</button>
+                <button onclick="navigator.clipboard.writeText(window.location.href); alert('Copied!')">Copy Link</button>
             </div>
             <div style="display:flex; gap: 5px;">
-                <input type="text" id="manualId" placeholder="Join ID" style="width: 60px; background:#000; border:1px solid var(--gold); color:#fff; font-family:'VT323'; padding: 2px 5px;">
-                <button onclick="window.location.search = '?room=' + document.getElementById('manualId').value">Join</button>
-                <button style="background:var(--danger); border-color: #ff4d4d;" onclick="resetRun()">RESET RUN</button>
+                <button onclick="localStorage.removeItem('barony_user'); location.reload();" style="opacity: 0.6;">Change Name</button>
+                <button style="background:var(--danger); border-color: #ff4d4d;" onclick="resetRun()">RESET ALL</button>
             </div>
         </div>
     </div>
 
     <script>
         const SUB_URL = "https://pvbeaaatyaunnlzybgsu.supabase.co"; 
-        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5senliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
+        const SUB_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB2YmVhYWF0eWF1bm5lenliZ3N1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzA4NDM1NDQsImV4cCI6MjA4NjQxOTU0NH0.7YZAuLHZnv8Zm6d-2lmf8oHmQ7Ebw5dznF8ZwqdIDOY"; 
 
         const client = supabase.createClient(SUB_URL, SUB_KEY);
         const NAMES = ["Zelgo Mer", "Juyed Awk Yacc", "NR 9", "Nobary Robyan", "Pratyavayah", "Daiyen Fooels", "Lep Gex Ven Zea", "Prirutsenie", "Elbib Yloh", "Verr Yed Horre", "Venzar Borgavve", "Tharr", "Yum Yum", "Kernod Wel", "Elam Ebow", "Duam Xnaht", "Andova Begarin", "Kirje", "Hackem Muche", "Velox Neb", "Foobie Bletch", "Temov", "Garven Deh", "Read Me"];
@@ -64,17 +69,25 @@
         if (!urlParams.get('room')) history.replaceState(null, null, `?room=${roomId}`);
         document.getElementById('roomDisp').innerText = `Room: ${roomId}`;
 
-        let charName = localStorage.getItem('barony_user') || "Adventurer";
+        let charName = localStorage.getItem('barony_user');
+        if(!charName) document.getElementById('nameOverlay').classList.add('show');
+
+        function saveName() {
+            const val = document.getElementById('nIn').value.trim();
+            if(val) {
+                localStorage.setItem('barony_user', val);
+                location.reload();
+            }
+        }
+
         let selections = {};
 
-        function initGrid() {
+        function init() {
             const grid = document.getElementById('grid');
-            grid.innerHTML = ''; 
             NAMES.forEach(name => {
                 const div = document.createElement('div');
                 div.className = 'item';
-                const safeId = name.replace(/\s+/g,'');
-                div.innerHTML = `<span>${name}</span><select id="s-${safeId}"></select>`;
+                div.innerHTML = `<span>${name}</span><select id="s-${name.replace(/\s+/g,'')}"></select>`;
                 grid.appendChild(div);
                 const sel = div.querySelector('select');
                 EFFECTS.forEach(e => {
@@ -83,96 +96,75 @@
                     sel.appendChild(opt);
                 });
                 sel.onchange = async () => {
-                    await client.from('scrolls').upsert({
-                        room_id: roomId, scroll_name: name, effect: sel.value
-                    }, { onConflict: 'room_id,scroll_name' });
-                    applyUpdate(name, sel.value);
+                    await client.from('scrolls').upsert({ room_id: roomId, scroll_name: name, effect: sel.value }, { onConflict: 'room_id,scroll_name' });
                 };
             });
         }
 
-        function updateExclusions() {
-            // Find all unique effects currently selected (excluding non-unique ones)
-            const used = Object.values(selections).filter(v => v !== "???" && v !== "Letter" && v !== "Blank");
-            let disc = 0;
-            
-            NAMES.forEach(name => {
-                const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
-                if(!sel) return;
-                if(sel.value !== "???") disc++;
-                
-                Array.from(sel.options).forEach(opt => {
-                    // Disable if the effect is used by another scroll, but NOT if it's the one this scroll currently has
-                    const isUsedElsewhere = used.includes(opt.value) && sel.value !== opt.value;
-                    opt.disabled = isUsedElsewhere;
-                    opt.style.color = isUsedElsewhere ? "#444" : "var(--highlight)";
-                });
-            });
-            document.getElementById('counter').innerText = `Discovered: ${disc} / 24`;
-        }
-
-        function applyUpdate(name, effect) {
+        function apply(name, effect) {
             selections[name] = effect;
             const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
             if (sel) {
                 sel.value = effect;
                 sel.classList.toggle('identified', effect !== "???");
+                updateEx();
             }
-            updateExclusions();
         }
 
-        // --- REALTIME SYNC ---
-        function startSync() {
-            client.channel(`room-${roomId}`)
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls', filter: `room_id=eq.${roomId}` }, (payload) => {
-                    if (payload.new) applyUpdate(payload.new.scroll_name, payload.new.effect);
-                })
-                .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => refreshPlayers())
-                .subscribe((status) => {
-                    const dot = document.getElementById('syncDot');
-                    if (status === 'SUBSCRIBED') {
-                        dot.classList.add('online');
-                        loadInitialData();
-                    } else {
-                        dot.classList.remove('online');
-                    }
+        function updateEx() {
+            const used = Object.values(selections).filter(v => v !== "???" && v !== "Letter" && v !== "Blank");
+            let disc = 0;
+            NAMES.forEach(name => {
+                const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
+                if(!sel) return;
+                if(sel.value !== "???") disc++;
+                Array.from(sel.options).forEach(opt => {
+                    const isDup = used.includes(opt.value) && sel.value !== opt.value;
+                    opt.disabled = isDup;
+                    opt.style.opacity = isDup ? "0.3" : "1";
                 });
+            });
+            document.getElementById('counter').innerText = `Discovered: ${disc} / 24`;
         }
 
-        async function loadInitialData() {
-            const { data } = await client.from('scrolls').select('*').eq('room_id', roomId);
-            if (data) data.forEach(row => applyUpdate(row.scroll_name, row.effect));
-        }
+        client.channel('realtime-sync')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, p => {
+                if (p.new && p.new.room_id === roomId) apply(p.new.scroll_name, p.new.effect);
+                if (p.eventType === 'DELETE') location.reload();
+            })
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'players' }, () => refresh())
+            .subscribe(s => {
+                if(s === 'SUBSCRIBED') {
+                    document.getElementById('syncDot').classList.add('online');
+                    load();
+                }
+            });
 
-        async function refreshPlayers() {
+        async function refresh() {
             const { data } = await client.from('players').select('*').eq('room_id', roomId);
-            const list = document.getElementById('playerList');
             if(!data) return;
+            const list = document.getElementById('playerList');
             list.innerHTML = "In Dungeon: ";
             data.filter(p => (new Date() - new Date(p.last_seen)) < 15000).forEach(p => {
                 list.innerHTML += `<span class="player-tag">${p.name}</span> `;
             });
         }
 
-        // Heartbeat for presence
-        setInterval(async () => {
-            await client.from('players').upsert({
-                room_id: roomId, name: charName, last_seen: new Date().toISOString()
-            }, { onConflict: 'room_id,name' });
-            // If the dot is grey, it means the websocket dropped. This refreshes player UI.
-            refreshPlayers();
-        }, 5000);
-
-        function copyLink() { navigator.clipboard.writeText(window.location.href); alert("Copied!"); }
-        async function resetRun() { 
-            if(confirm("Wipe all scrolls?")) {
-                await client.from('scrolls').delete().eq('room_id', roomId);
-                location.reload();
-            }
+        async function load() {
+            const { data } = await client.from('scrolls').select('*').eq('room_id', roomId);
+            if (data) data.forEach(r => apply(r.scroll_name, r.effect));
+            refresh();
         }
 
-        initGrid();
-        startSync();
+        setInterval(async () => {
+            if(charName) {
+                await client.from('players').upsert({ room_id: roomId, name: charName, last_seen: new Date().toISOString() }, { onConflict: 'room_id,name' });
+            }
+        }, 5000);
+
+        async function resetRun() { if(confirm("Reset all?")) await client.from('scrolls').delete().eq('room_id', roomId); }
+
+        init();
     </script>
 </body>
 </html>
