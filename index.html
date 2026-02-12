@@ -3,46 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Barony Scroll Tracker - Repair Mode</title>
+    <title>Barony Tracker - Fix</title>
     <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
         :root { --bg: #0f0a07; --panel: #261a12; --gold: #8c6a31; --text: #e0d0b8; --highlight: #f2c05e; --danger: #8a1313; }
-        body { background: var(--bg); color: var(--text); font-family: 'VT323', monospace; padding: 10px; display: flex; justify-content: center; margin: 0; }
-        .container { width: 100%; max-width: 950px; border: 4px solid var(--gold); background: var(--panel); box-shadow: 0 0 20px #000; position: relative; }
-        header { padding: 15px; border-bottom: 4px solid var(--gold); background: #1a120b; }
-        #debug-log { background: #420000; color: #ff6666; padding: 10px; font-size: 0.9rem; display: none; border-bottom: 2px solid var(--danger); }
-        .scroll-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); background: #000; }
-        .item { display: flex; justify-content: space-between; align-items: center; padding: 10px 15px; border: 1px solid #33241a; }
-        select { background: #000; color: var(--highlight); border: 2px solid var(--gold); font-family: 'VT323'; font-size: 1.2rem; width: 160px; }
-        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; background: #555; }
+        body { background: var(--bg); color: var(--text); font-family: 'VT323', monospace; padding: 20px; display: flex; justify-content: center; margin: 0; }
+        .container { width: 100%; max-width: 900px; border: 4px solid var(--gold); background: var(--panel); position: relative; }
+        .scroll-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); background: #000; border-top: 2px solid var(--gold); }
+        .item { display: flex; justify-content: space-between; align-items: center; padding: 12px; border: 1px solid #33241a; }
+        select { background: #000; color: var(--highlight); border: 2px solid var(--gold); font-family: 'VT323'; font-size: 1.2rem; cursor: pointer; }
+        .status-dot { height: 12px; width: 12px; border-radius: 50%; display: inline-block; background: #555; margin-right: 8px; }
         .online { background: #4CAF50; box-shadow: 0 0 8px #4CAF50; }
-        #nameOverlay { position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.95); z-index: 100; display: none; flex-direction: column; justify-content: center; align-items: center; }
+        #error-banner { background: var(--danger); color: white; padding: 10px; display: none; text-align: center; font-weight: bold; }
+        #nameOverlay { position: absolute; inset: 0; background: rgba(0,0,0,0.9); z-index: 100; display: none; flex-direction: column; justify-content: center; align-items: center; }
         #nameOverlay.show { display: flex; }
     </style>
 </head>
 <body>
     <div class="container">
-        <div id="debug-log"></div>
+        <div id="error-banner">CONNECTION ERROR: Check Supabase API Keys / SQL Permissions</div>
         <div id="nameOverlay">
-            <h2 style="color:var(--gold)">WHO ART THOU?</h2>
-            <input type="text" id="nIn" placeholder="Character Name" style="background:#000; border:2px solid var(--gold); color:#fff; font-family:'VT323'; font-size: 1.5rem; padding: 10px; margin-bottom: 10px;">
-            <button onclick="saveName()">ENTER DUNGEON</button>
+            <h2 style="color:var(--gold)">CHARACTER NAME</h2>
+            <input type="text" id="nIn" style="background:#000; border:2px solid var(--gold); color:#fff; font-family:'VT323'; font-size: 1.5rem; padding: 5px;">
+            <button onclick="saveName()" style="margin-top:10px; padding: 5px 20px; font-family:'VT323'; cursor:pointer;">START</button>
         </div>
-        <header>
-            <div style="display:flex; justify-content:space-between; align-items: center;">
-                <h1 style="margin:0">📜 BARONY SCROLLS</h1>
-                <div id="counter" style="color: #4CAF50; font-size: 1.6rem;">Discovered: 0 / 24</div>
-            </div>
-            <div id="playerList" style="margin-top:10px; color:#8a7a6a;">In Dungeon: </div>
+        <header style="padding: 15px;">
+            <h1 style="margin:0">📜 BARONY SCROLLS</h1>
+            <div id="playerList" style="color: #8a7a6a; margin-top: 5px;"></div>
         </header>
         <div id="grid" class="scroll-grid"></div>
-        <div class="controls" style="padding:15px; display:flex; justify-content:space-between; background:#1a120b;">
-            <div>
-                <span id="syncDot" class="status-dot"></span>
-                <span id="roomDisp" style="color:#8a7a6a">Room: ...</span>
-            </div>
-            <button onclick="localStorage.removeItem('barony_user'); location.reload();">Change Name</button>
+        <div style="padding: 15px; background: #1a120b; display: flex; justify-content: space-between; align-items: center;">
+            <div><span id="syncDot" class="status-dot"></span> <span id="roomInfo"></span></div>
+            <button onclick="localStorage.removeItem('barony_user'); location.reload();">Reset Identity</button>
         </div>
     </div>
 
@@ -57,20 +50,14 @@
         const urlParams = new URLSearchParams(window.location.search);
         let roomId = urlParams.get('room') || Math.random().toString(36).substring(2, 8);
         if (!urlParams.get('room')) history.replaceState(null, null, `?room=${roomId}`);
-        document.getElementById('roomDisp').innerText = `Room: ${roomId}`;
+        document.getElementById('roomInfo').innerText = "Room: " + roomId;
 
         let charName = localStorage.getItem('barony_user');
         if(!charName) document.getElementById('nameOverlay').classList.add('show');
 
-        function logError(msg) {
-            const el = document.getElementById('debug-log');
-            el.style.display = 'block';
-            el.innerText = "Error: " + msg;
-        }
-
         function saveName() {
-            const val = document.getElementById('nIn').value.trim();
-            if(val) { localStorage.setItem('barony_user', val); location.reload(); }
+            const n = document.getElementById('nIn').value.trim();
+            if(n) { localStorage.setItem('barony_user', n); location.reload(); }
         }
 
         function init() {
@@ -88,14 +75,20 @@
                 });
                 sel.onchange = async () => {
                     const { error } = await client.from('scrolls').upsert({ room_id: roomId, scroll_name: name, effect: sel.value }, { onConflict: 'room_id,scroll_name' });
-                    if(error) logError(error.message);
+                    if(error) showErr(error.message);
                 };
             });
         }
 
-        function apply(name, effect) {
+        function showErr(m) {
+            const b = document.getElementById('error-banner');
+            b.style.display = 'block';
+            b.innerText = "DB Error: " + m;
+        }
+
+        function updateUI(name, effect) {
             const sel = document.getElementById(`s-${name.replace(/\s+/g,'')}`);
-            if (sel) {
+            if(sel) {
                 sel.value = effect;
                 sel.style.borderColor = (effect !== "???") ? "#4CAF50" : "#8c6a31";
             }
@@ -103,21 +96,28 @@
 
         async function load() {
             const { data, error } = await client.from('scrolls').select('*').eq('room_id', roomId);
-            if(error) { logError(error.message); return; }
-            if (data) data.forEach(r => apply(r.scroll_name, r.effect));
+            if(error) { showErr(error.message); return; }
+            data.forEach(r => updateUI(r.scroll_name, r.effect));
         }
 
-        // Realtime connection
-        client.channel('any').on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, p => {
-            if (p.new && p.new.room_id === roomId) apply(p.new.scroll_name, p.new.effect);
-        }).subscribe(s => {
-            if(s === 'SUBSCRIBED') document.getElementById('syncDot').classList.add('online');
-        });
+        // Realtime
+        client.channel('room-sync')
+            .on('postgres_changes', { event: '*', schema: 'public', table: 'scrolls' }, p => {
+                if(p.new && p.new.room_id === roomId) updateUI(p.new.scroll_name, p.new.effect);
+            })
+            .subscribe(status => {
+                if(status === 'SUBSCRIBED') document.getElementById('syncDot').classList.add('online');
+            });
 
+        // Heartbeat
         setInterval(async () => {
             if(charName) {
-                const { error } = await client.from('players').upsert({ room_id: roomId, name: charName, last_seen: new Date().toISOString() }, { onConflict: 'room_id,name' });
-                if(error && error.message.includes("401")) logError("Session Expired or API Key Blocked");
+                await client.from('players').upsert({ room_id: roomId, name: charName, last_seen: new Date().toISOString() }, { onConflict: 'room_id,name' });
+                const { data } = await client.from('players').select('*').eq('room_id', roomId);
+                if(data) {
+                    const list = data.filter(p => (new Date() - new Date(p.last_seen)) < 15000).map(p => p.name);
+                    document.getElementById('playerList').innerText = "In Dungeon: " + list.join(", ");
+                }
             }
         }, 5000);
 
